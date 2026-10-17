@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatZ - 실시간 커뮤니티 웹사이트</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0b0f19',
+                        sidebarBg: '#111827',
+                        chatBg: '#0f172a',
+                        cardBg: '#1e293b',
+                        accentPurple: '#7c3aed',
+                        accentBlue: '#2563eb'
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Supabase JS Client v2 CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- FontAwesome Icons CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+<body class="bg-darkBg text-slate-100 font-sans h-screen flex flex-col overflow-hidden select-none">
+
+    <!-- Supabase API 키 설정 모달 (항상 화면 최상단 강제 표시 가능) -->
+    <div id="configModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-lg w-full p-6 shadow-2xl relative">
+            <div class="flex items-center space-x-2 text-purple-400 mb-3">
+                <i class="fa-solid fa-plug text-xl"></i>
+                <h2 class="text-xl font-bold">Supabase 연결 설정</h2>
+            </div>
+            <p class="text-xs text-slate-300 mb-4 leading-relaxed">
+                Supabase 프로젝트의 <b>URL</b>과 <b>Anon Public Key</b>를 입력해주세요.<br>
+                입력하신 정보는 브라우저의 로컬 스토리지에 안전하게 저장됩니다.
+            </p>
+            <div class="space-y-3 mb-5">
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1 font-semibold">Supabase Project URL</label>
+                    <input type="text" id="inputUrl" placeholder="https://xxxx.supabase.co" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 text-slate-200">
+                </div>
+                <div>
+                    <label class="block text-xs text-slate-400 mb-1 font-semibold">Supabase Anon (Public) Key</label>
+                    <input type="password" id="inputKey" placeholder="eyJhbGciOiJIUzI1NiIsIn..." class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 text-slate-200">
+                </div>
+            </div>
+            <div class="flex space-x-2">
+                <button onclick="saveConfig()" class="flex-1 bg-purple-600 hover:bg-purple-700 font-medium py-2.5 rounded-lg text-xs transition shadow-lg flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>저장하고 서비스 연결하기</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 메인 대시보드 레이아웃 -->
+    <div class="flex h-full w-full overflow-hidden relative">
+        
+        <!-- 모바일 사이드바 토글 버튼 -->
+        <button id="mobileToggle" onclick="toggleSidebar()" class="md:hidden absolute top-3 left-3 z-30 bg-slate-800 p-2.5 rounded-lg text-slate-300 shadow-md">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+
+        <!-- 좌측 사이드바 (채팅방 및 글로벌 설정) -->
+        <aside id="sidebar" class="w-72 bg-sidebarBg border-r border-slate-800 flex flex-col h-full z-20 absolute md:relative transition-transform duration-200 -translate-x-full md:translate-x-0 shadow-2xl md:shadow-none">
+            <!-- 사용자 프로필 및 상단 헤더 -->
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-2.5 overflow-hidden">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-blue-600 flex items-center justify-center font-bold text-lg shadow shrink-0">Z</div>
+                    <div class="truncate">
+                        <h1 class="font-bold tracking-wider text-sm text-slate-100">ChatZ</h1>
+                        <span id="userNicknameDisplay" class="text-xs text-slate-400 truncate max-w-[120px] block cursor-pointer hover:text-purple-400 transition" onclick="openNicknameModal()" title="클릭하여 닉네임 변경">익명 사용자</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-1 shrink-0">
+                    <button onclick="forceOpenConfigModal()" title="API 설정" class="text-slate-400 hover:text-purple-400 p-1.5 rounded-lg hover:bg-slate-800 transition"><i class="fa-solid fa-gear text-sm"></i></button>
+                    <button onclick="openNicknameModal()" title="닉네임 변경" class="text-slate-400 hover:text-purple-400 p-1.5 rounded-lg hover:bg-slate-800 transition"><i class="fa-solid fa-user-pen text-sm"></i></button>
+                </div>
+            </div>
+
+            <!-- 글로벌 사이트 공지 배너 -->
+            <div id="siteNoticeBanner" class="bg-purple-950/40 border-b border-purple-900/50 p-2.5 text-xs text-purple-200 hidden cursor-pointer hover:bg-purple-900/40 transition" onclick="openNoticeModal()">
+                <div class="flex items-center font-semibold mb-0.5"><i class="fa-solid fa-bullhorn mr-1.5 text-purple-400"></i> 전체 공지사항</div>
+                <div id="siteNoticeText" class="truncate text-slate-300">공지가 등록되어 있습니다.</div>
+            </div>
+
+            <!-- 검색 및 방 생성 -->
+            <div class="p-3 border-b border-slate-800 space-y-2">
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+                    <input type="text" id="roomSearchInput" oninput="filterRooms()" placeholder="채팅방 검색..." class="w-full bg-darkBg border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs focus:outline-none focus:border-purple-500 text-slate-200">
+                </div>
+                <button onclick="openCreateRoomModal()" class="w-full bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 font-medium py-1.5 rounded-lg text-xs transition flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-plus text-[10px]"></i><span>새 채팅방 만들기</span>
+                </button>
+            </div>
+
+            <!-- 채팅방 목록 -->
+            <div class="flex-1 overflow-y-auto p-2 space-y-1" id="roomListContainer">
+                <div class="text-center text-xs text-slate-500 py-4">연결 상태 확인 중...</div>
+            </div>
+
+            <!-- 하단 사이트 관리자 버튼 -->
+            <div id="adminMenuSection" class="p-3 border-t border-slate-800">
+                <button onclick="openAdminModal()" class="w-full bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/30 text-rose-300 font-medium py-1.5 rounded-lg text-xs transition flex items-center justify-center space-x-1.5">
+                    <i class="fa-solid fa-shield-halved"></i><span>사이트 관리자 모드</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- 모바일 사이드바 백드롭 -->
+        <div id="sidebarOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-black/50 z-10 hidden md:hidden"></div>
+
+        <!-- 중앙 메시지 영역 -->
+        <main class="flex-1 flex flex-col h-full bg-chatBg overflow-hidden">
+            <!-- 채팅방 헤더 -->
+            <header class="h-14 border-b border-slate-800 px-4 flex items-center justify-between bg-sidebarBg/50 backdrop-blur">
+                <div class="flex items-center space-x-3 overflow-hidden pl-8 md:pl-0">
+                    <i class="fa-solid fa-hashtag text-slate-400 text-lg"></i>
+                    <div class="truncate">
+                        <h2 id="currentRoomName" class="font-bold text-sm tracking-wide text-slate-100">채팅방을 선택하세요</h2>
+                        <p id="currentRoomDesc" class="text-xs text-slate-400 truncate">채팅 참여자들과 자유롭게 대화를 나누세요.</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="openRoomNoticeModal()" title="방 공지" class="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition"><i class="fa-solid fa-circle-info"></i></button>
+                    <button id="roomSettingsBtn" onclick="openRoomSettingsModal()" title="방 관리 (방장 전용)" class="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition hidden"><i class="fa-solid fa-gear"></i></button>
+                    <button onclick="toggleRightSidebar()" title="참여자 목록" class="p-2 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition md:hidden"><i class="fa-solid fa-users"></i></button>
+                </div>
+            </header>
+
+            <!-- 방 공지 바 -->
+            <div id="roomNoticeBar" class="bg-slate-800/80 border-b border-slate-700/50 px-4 py-2 text-xs flex items-center justify-between hidden">
+                <div class="flex items-center space-x-2 truncate">
+                    <span class="bg-purple-600 text-white px-1.5 py-0.5 rounded text-[10px] font-bold shrink-0">방 공지</span>
+                    <span id="roomNoticeContent" class="text-slate-200 truncate">등록된 공지가 없습니다.</span>
+                </div>
+                <button onclick="closeRoomNoticeBar()" class="text-slate-400 hover:text-slate-200 ml-2"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- 메시지 출력 영역 -->
+            <div id="messageContainer" class="flex-1 overflow-y-auto p-4 space-y-4">
+                <div class="flex flex-col items-center justify-center h-full text-slate-500 space-y-2">
+                    <i class="fa-regular fa-comments text-4xl"></i>
+                    <p class="text-sm">왼쪽 채널을 선택하거나 새로 생성하여 대화를 시작해 보세요!</p>
+                </div>
+            </div>
+
+            <!-- 첨부 파일 미리보기 바 -->
+            <div id="filePreviewBar" class="bg-slate-800/90 border-t border-slate-700 px-4 py-2 text-xs flex items-center justify-between hidden">
+                <div class="flex items-center space-x-2 truncate text-slate-300">
+                    <i class="fa-solid fa-file-arrow-up text-blue-400"></i>
+                    <span id="filePreviewName" class="truncate">첨부 파일명</span>
+                </div>
+                <button onclick="cancelFileAttachment()" class="text-slate-400 hover:text-slate-200"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- 메시지 입력 영역 -->
+            <div class="p-4 bg-sidebarBg/30 border-t border-slate-800">
+                <div class="bg-cardBg border border-slate-700 rounded-xl p-2 flex flex-col focus-within:border-purple-500 transition">
+                    <textarea id="messageInput" rows="1" onkeydown="handleMessageKeyDown(event)" placeholder="메시지를 입력하세요... (Enter 전송, Shift+Enter 줄바꿈)" class="w-full bg-transparent resize-none text-sm focus:outline-none text-slate-100 placeholder-slate-500 max-h-32 px-2 py-1"></textarea>
+                    <div class="flex items-center justify-between pt-2 px-2 border-t border-slate-800/60 mt-1">
+                        <div class="flex items-center space-x-1">
+                            <input type="file" id="fileInput" onchange="handleFileSelected(event)" class="hidden">
+                            <button onclick="document.getElementById('fileInput').click()" title="파일 첨부" class="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-700/50 rounded-lg transition"><i class="fa-solid fa-paperclip"></i></button>
+                        </div>
+                        <button onclick="sendMessage()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-lg text-xs font-medium transition flex items-center space-x-1.5">
+                            <span>전송</span><i class="fa-solid fa-paper-plane text-[10px]"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- 우측 참여자 목록 -->
+        <aside id="rightSidebar" class="w-60 bg-sidebarBg border-l border-slate-800 flex flex-col h-full z-20 absolute right-0 md:relative translate-x-full md:translate-x-0 transition-transform duration-200">
+            <div class="p-4 border-b border-slate-800">
+                <h3 class="font-bold text-xs uppercase tracking-wider text-slate-400 flex items-center">
+                    <i class="fa-solid fa-users mr-1.5 text-purple-400"></i> 참여자 (<span id="participantCount">0</span>)
+                </h3>
+            </div>
+            <div id="participantListContainer" class="flex-1 overflow-y-auto p-3 space-y-2">
+                <div class="text-xs text-slate-500 text-center py-4">접속 유저 조회 중</div>
+            </div>
+            <div class="p-4 border-t border-slate-800 bg-darkBg/40">
+                <h4 class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">방 정보</h4>
+                <div id="roomInfoOwner" class="text-xs text-slate-300 truncate">방장: -</div>
+                <div id="roomInfoCreated" class="text-xs text-slate-500 truncate mt-0.5">개설일: -</div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- 모달 창 구성 모음 -->
+    <div id="nicknameModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-sm w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-3 text-slate-100">닉네임 변경</h3>
+            <input type="text" id="nicknameInput" maxlength="20" placeholder="새 닉네임 입력" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500 mb-4 text-slate-200">
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeNicknameModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">취소</button>
+                <button onclick="saveNickname()" class="px-4 py-2 rounded-lg text-xs bg-purple-600 text-white font-medium">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="createRoomModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-3 text-slate-100">새 채팅방 만들기</h3>
+            <div class="space-y-3 mb-5">
+                <input type="text" id="newRoomName" maxlength="30" placeholder="방 이름" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <textarea id="newRoomDesc" rows="2" maxlength="100" placeholder="방 간단 설명" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 resize-none"></textarea>
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeCreateRoomModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">취소</button>
+                <button onclick="createRoom()" class="px-4 py-2 rounded-lg text-xs bg-purple-600 text-white font-medium">생성</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="noticeModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-3 text-purple-400">전체 공지사항</h3>
+            <div id="siteNoticeModalContent" class="text-sm text-slate-300 bg-darkBg/50 p-4 rounded-lg border border-slate-800 mb-4 max-h-60 overflow-y-auto">공지 정보를 불러오는 중입니다.</div>
+            <div class="flex justify-end"><button onclick="closeNoticeModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">닫기</button></div>
+        </div>
+    </div>
+
+    <div id="roomNoticeModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-3 text-purple-400">채팅방 공지사항</h3>
+            <p id="roomNoticeModalText" class="text-sm text-slate-300 bg-darkBg/50 p-4 rounded-lg border border-slate-800 mb-4 min-h-[80px]">등록된 공지가 없습니다.</p>
+            <div class="flex justify-end"><button onclick="closeRoomNoticeModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">닫기</button></div>
+        </div>
+    </div>
+
+    <div id="roomSettingsModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-md w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-4 text-purple-400">채팅방 설정 (방장 전용)</h3>
+            <div class="space-y-3 mb-5">
+                <input type="text" id="editRoomNameInput" placeholder="방 이름" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <input type="text" id="editRoomDescInput" placeholder="방 설명" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <textarea id="editRoomNoticeInput" rows="2" placeholder="방 공지사항 입력" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 resize-none"></textarea>
+            </div>
+            <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+                <button onclick="deleteCurrentRoom()" class="px-3 py-2 rounded-lg text-xs bg-rose-600/20 text-rose-300 border border-rose-500/30">방 삭제</button>
+                <div class="space-x-2">
+                    <button onclick="closeRoomSettingsModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">취소</button>
+                    <button onclick="saveRoomSettings()" class="px-4 py-2 rounded-lg text-xs bg-purple-600 text-white font-medium">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="adminModal" class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-cardBg border border-slate-700 rounded-xl max-w-lg w-full p-6 shadow-2xl">
+            <h3 class="text-lg font-bold mb-3 text-rose-400">사이트 관리자 제어판</h3>
+            <div class="space-y-4 mb-5">
+                <input type="password" id="adminKeyInput" placeholder="관리자 보안키 입력" class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200">
+                <textarea id="adminNoticeInput" rows="3" placeholder="사이트 전체 공지 작성..." class="w-full bg-darkBg border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 resize-none"></textarea>
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button onclick="closeAdminModal()" class="px-4 py-2 rounded-lg text-xs bg-slate-700 text-slate-300">닫기</button>
+                <button onclick="saveAdminNotice()" class="px-4 py-2 rounded-lg text-xs bg-rose-600 text-white font-medium">전체 공지 게시</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 애플리케이션 코어 JS 스크립트 -->
+    <script>
+        let supabaseClient = null;
+        let currentUserId = '';
+        let currentNickname = '';
+        let currentRoomId = null;
+        let currentRoomData = null;
+        let rooms = [];
+        let activeMessageSubscription = null;
+        let selectedFile = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initUserSession();
+            checkAndOpenConfig();
+        });
+
+        function initUserSession() {
+            let uid = localStorage.getItem('chatz_user_id');
+            if (!uid) {
+                uid = 'user_' + Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+                localStorage.setItem('chatz_user_id', uid);
+            }
+            currentUserId = uid;
+
+            let nick = localStorage.getItem('chatz_nickname');
+            if (!nick) {
+                nick = '익명_' + Math.floor(1000 + Math.random() * 9000);
+                localStorage.setItem('chatz_nickname', nick);
+            }
+            currentNickname = nick;
+            document.getElementById('userNicknameDisplay').innerText = currentNickname;
+        }
+
+        function checkAndOpenConfig() {
+            const url = localStorage.getItem('chatz_supabase_url');
+            const key = localStorage.getItem('chatz_supabase_key');
+            if (!url || !key) {
+                forceOpenConfigModal();
+            } else {
+                initSupabase(url, key);
+            }
+        }
+
+        function forceOpenConfigModal() {
+            document.getElementById('inputUrl').value = localStorage.getItem('chatz_supabase_url') || '';
+            document.getElementById('inputKey').value = localStorage.getItem('chatz_supabase_key') || '';
+            document.getElementById('configModal').classList.remove('hidden');
+        }
+
+        function saveConfig() {
+            const url = document.getElementById('inputUrl').value.trim();
+            const key = document.getElementById('inputKey').value.trim();
+            if (!url || !key) {
+                alert('URL과 Anon Key를 모두 올바르게 입력해주세요.');
+                return;
+            }
+            localStorage.setItem('chatz_supabase_url', url);
+            localStorage.setItem('chatz_supabase_key', key);
+            document.getElementById('configModal').classList.add('hidden');
+            location.reload();
+        }
+
+        function initSupabase(url, key) {
+            try {
+                if (window.supabase) {
+                    supabaseClient = window.supabase.createClient(url, key);
+                    document.getElementById('configModal').classList.add('hidden');
+                    loadRooms();
+                    loadSiteNotice();
+                } else {
+                    console.error('Supabase 라이브러리를 불러오지 못했습니다.');
+                    forceOpenConfigModal();
+                }
+            } catch (e) {
+                console.error('Supabase 초기화 예외:', e);
+                forceOpenConfigModal();
+            }
+        }
+
+        function openNicknameModal() {
+            document.getElementById('nicknameInput').value = currentNickname;
+            document.getElementById('nicknameModal').classList.remove('hidden');
+        }
+        function closeNicknameModal() { document.getElementById('nicknameModal').classList.add('hidden'); }
+        function saveNickname() {
+            const newNick = document.getElementById('nicknameInput').value.trim();
+            if (!newNick) return;
+            currentNickname = newNick;
+            localStorage.setItem('chatz_nickname', newNick);
+            document.getElementById('userNicknameDisplay').innerText = newNick;
+            closeNicknameModal();
+            if (currentRoomId) updateParticipantPresence();
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('-translate-x-full');
+            document.getElementById('sidebarOverlay').classList.toggle('hidden');
+        }
+        function toggleRightSidebar() {
+            document.getElementById('rightSidebar').classList.toggle('translate-x-full');
+        }
+
+        async function loadRooms() {
+            if (!supabaseClient) return;
+            try {
+                const { data, error } = await supabaseClient.from('rooms').select('*').order('created_at', { ascending: true });
+                if (error) throw error;
+                rooms = data || [];
+                renderRoomList(rooms);
+                if (rooms.length > 0 && !currentRoomId) {
+                    switchRoom(rooms[0].id);
+                } else if (rooms.length === 0) {
+                    createDefaultRoom();
+                }
+            } catch (e) {
+                console.error('방 목록 조회 오류:', e);
+                document.getElementById('roomListContainer').innerHTML = `<div class="text-center text-xs text-rose-400 py-4">방 목록 로딩 실패<br>API Key를 확인해 보세요.</div>`;
+            }
+        }
+
+        async function createDefaultRoom() {
+            try {
+                const { data } = await supabaseClient.from('rooms').insert([{ name: '기본 로비', description: 'ChatZ 통합 로비입니다.', owner_id: currentUserId }]).select();
+                if (data) loadRooms();
+            } catch(e) { console.error(e); }
+        }
+
+        function renderRoomList(roomArray) {
+            const container = document.getElementById('roomListContainer');
+            if (roomArray.length === 0) {
+                container.innerHTML = `<div class="text-center text-xs text-slate-500 py-4">생성된 채팅방이 없습니다.</div>`;
+                return;
+            }
+            container.innerHTML = roomArray.map(room => `
+                <div onclick="switchRoom('${room.id}')" class="px-3 py-2.5 rounded-lg cursor-pointer transition flex items-center justify-between ${currentRoomId === room.id ? 'bg-purple-600/25 text-purple-300 font-medium border border-purple-500/30' : 'hover:bg-slate-800/60 text-slate-300'}">
+                    <div class="flex items-center space-x-2 truncate">
+                        <i class="fa-solid fa-hashtag text-xs opacity-60"></i>
+                        <span class="truncate text-xs">${escapeHtml(room.name)}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function filterRooms() {
+            const keyword = document.getElementById('roomSearchInput').value.toLowerCase();
+            renderRoomList(rooms.filter(r => r.name.toLowerCase().includes(keyword)));
+        }
+
+        function openCreateRoomModal() { document.getElementById('createRoomModal').classList.remove('hidden'); }
+        function closeCreateRoomModal() { document.getElementById('createRoomModal').classList.add('hidden'); }
+        async function createRoom() {
+            const name = document.getElementById('newRoomName').value.trim();
+            const desc = document.getElementById('newRoomDesc').value.trim();
+            if (!name) return;
+            try {
+                const { data } = await supabaseClient.from('rooms').insert([{ name, description: desc, owner_id: currentUserId }]).select();
+                closeCreateRoomModal();
+                loadRooms();
+                if (data && data[0]) switchRoom(data[0].id);
+            } catch(e) { console.error(e); }
+        }
+
+        async function switchRoom(roomId) {
+            if (currentRoomId === roomId) return;
+            currentRoomId = roomId;
+            if (activeMessageSubscription) supabaseClient.removeChannel(activeMessageSubscription);
+
+            currentRoomData = rooms.find(r => r.id === roomId);
+            if (!currentRoomData) return;
+
+            document.getElementById('currentRoomName').innerText = currentRoomData.name;
+            document.getElementById('currentRoomDesc').innerText = currentRoomData.description || '';
+            document.getElementById('roomInfoOwner').innerText = '방장 ID: ' + currentRoomData.owner_id.substring(0, 8) + '...';
+            document.getElementById('roomInfoCreated').innerText = '개설일: ' + new Date(currentRoomData.created_at).toLocaleDateString();
+
+            const settingsBtn = document.getElementById('roomSettingsBtn');
+            if (currentRoomData.owner_id === currentUserId) settingsBtn.classList.remove('hidden');
+            else settingsBtn.classList.add('hidden');
+
+            renderRoomList(rooms);
+            updateRoomNoticeDisplay(currentRoomData.notice);
+            await updateParticipantPresence();
+            await loadMessages();
+            subscribeToMessages();
+            loadParticipants();
+        }
+
+        async function loadMessages() {
+            const { data } = await supabaseClient.from('messages').select('*').eq('room_id', currentRoomId).order('created_at', { ascending: true }).limit(50);
+            renderMessages(data || []);
+        }
+
+        function renderMessages(msgList) {
+            const container = document.getElementById('messageContainer');
+            if (msgList.length === 0) {
+                container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-slate-500 space-y-2"><i class="fa-regular fa-comment-dots text-3xl"></i><p class="text-sm">메시지가 아직 없습니다.</p></div>`;
+                return;
+            }
+            container.innerHTML = msgList.map(msg => {
+                const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const canDelete = msg.user_id === currentUserId || (currentRoomData && currentRoomData.owner_id === currentUserId);
+                return `
+                    <div class="group relative flex items-start space-x-3 p-2 rounded-lg hover:bg-slate-800/40 transition">
+                        <div class="w-9 h-9 rounded-full bg-purple-600 flex items-center justify-center font-bold text-xs text-white shrink-0">${escapeHtml(msg.nickname ? msg.nickname[0] : '익')}</div>
+                        <div class="flex-1 overflow-hidden">
+                            <div class="flex items-center space-x-2"><span class="font-bold text-xs text-slate-200">${escapeHtml(msg.nickname)}</span><span class="text-[10px] text-slate-500">${timeStr}</span></div>
+                            <div class="text-sm text-slate-300 mt-0.5 break-words">${formatMessageContent(msg.content)}</div>
+                            ${msg.file_url ? `<div class="mt-2"><a href="${msg.file_url}" target="_blank" class="text-xs text-purple-400 underline flex items-center space-x-1"><i class="fa-solid fa-file"></i><span>${escapeHtml(msg.file_name)}</span></a></div>` : ''}
+                        </div>
+                        ${canDelete ? `<button onclick="deleteMessage('${msg.id}')" class="absolute right-3 top-2 opacity-0 group-hover:opacity-100 text-rose-400 text-xs"><i class="fa-solid fa-trash"></i></button>` : ''}
+                    </div>
+                `;
+            }).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function subscribeToMessages() {
+            activeMessageSubscription = supabaseClient.channel('room-' + currentRoomId)
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `room_id=eq.${currentRoomId}` }, payload => {
+                    loadMessages();
+                }).subscribe();
+        }
+
+        function handleMessageKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        }
+
+        function handleFileSelected(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            selectedFile = file;
+            document.getElementById('filePreviewName').innerText = file.name;
+            document.getElementById('filePreviewBar').classList.remove('hidden');
+        }
+
+        function cancelFileAttachment() {
+            selectedFile = null;
+            document.getElementById('fileInput').value = '';
+            document.getElementById('filePreviewBar').classList.add('hidden');
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const content = input.value.trim();
+            if (!content && !selectedFile) return;
+
+            let fileUrl = null, fileName = null, fileType = null;
+            if (selectedFile) {
+                try {
+                    const filePath = `${currentRoomId}/${Date.now()}_${selectedFile.name}`;
+                    await supabaseClient.storage.from('chat-files').upload(filePath, selectedFile);
+                    const { data } = supabaseClient.storage.from('chat-files').getPublicUrl(filePath);
+                    fileUrl = data.publicUrl;
+                    fileName = selectedFile.name;
+                    fileType = selectedFile.type;
+                } catch(e) {
+                    console.error('파일 업로드 오류:', e);
+                }
+            }
+
+            await supabaseClient.from('messages').insert([{
+                room_id: currentRoomId, user_id: currentUserId, nickname: currentNickname,
+                content: content || '[파일 첨부]', file_url: fileUrl, file_name: fileName, file_type: fileType
+            }]);
+
+            input.value = '';
+            cancelFileAttachment();
+            loadMessages();
+        }
+
+        async function deleteMessage(msgId) {
+            if (!confirm('메시지를 삭제하시겠습니까?')) return;
+            await supabaseClient.from('messages').delete().eq('id', msgId);
+            loadMessages();
+        }
+
+        async function updateParticipantPresence() {
+            try {
+                await supabaseClient.from('participants').upsert([{ room_id: currentRoomId, user_id: currentUserId, nickname: currentNickname }], { onConflict: 'room_id,user_id' });
+            } catch(e) { console.error(e); }
+        }
+
+        async function loadParticipants() {
+            const { data } = await supabaseClient.from('participants').select('*').eq('room_id', currentRoomId);
+            const participants = data || [];
+            document.getElementById('participantCount').innerText = participants.length;
+            document.getElementById('participantListContainer').innerHTML = participants.map(p => `
+                <div class="flex items-center space-x-2 py-1 px-2"><div class="w-2 h-2 rounded-full bg-emerald-500"></div><span class="text-xs text-slate-300 truncate">${escapeHtml(p.nickname)}</span></div>
+            `).join('');
+        }
+
+        function updateRoomNoticeDisplay(notice) {
+            const bar = document.getElementById('roomNoticeBar');
+            if (notice) {
+                document.getElementById('roomNoticeContent').innerText = notice;
+                bar.classList.remove('hidden');
+            } else { bar.classList.add('hidden'); }
+        }
+
+        function closeRoomNoticeBar() { document.getElementById('roomNoticeBar').classList.add('hidden'); }
+        function openRoomNoticeModal() {
+            document.getElementById('roomNoticeModalText').innerText = currentRoomData?.notice || '등록된 공지사항이 없습니다.';
+            document.getElementById('roomNoticeModal').classList.remove('hidden');
+        }
+        function closeRoomNoticeModal() { document.getElementById('roomNoticeModal').classList.add('hidden'); }
+
+        function openRoomSettingsModal() {
+            document.getElementById('editRoomNameInput').value = currentRoomData.name;
+            document.getElementById('editRoomDescInput').value = currentRoomData.description || '';
+            document.getElementById('editRoomNoticeInput').value = currentRoomData.notice || '';
+            document.getElementById('roomSettingsModal').classList.remove('hidden');
+        }
+        function closeRoomSettingsModal() { document.getElementById('roomSettingsModal').classList.add('hidden'); }
+
+        async function saveRoomSettings() {
+            const name = document.getElementById('editRoomNameInput').value.trim();
+            const desc = document.getElementById('editRoomDescInput').value.trim();
+            const notice = document.getElementById('editRoomNoticeInput').value.trim();
+            await supabaseClient.from('rooms').update({ name, description: desc, notice }).eq('id', currentRoomId);
+            closeRoomSettingsModal();
+            loadRooms();
+        }
+
+        async function deleteCurrentRoom() {
+            if (!confirm('이 채팅방을 정말 삭제하시겠습니까?')) return;
+            await supabaseClient.from('rooms').delete().eq('id', currentRoomId);
+            closeRoomSettingsModal();
+            currentRoomId = null;
+            loadRooms();
+        }
+
+        async function loadSiteNotice() {
+            try {
+                const { data } = await supabaseClient.from('site_notices').select('*').order('created_at', { ascending: false }).limit(1);
+                if (data && data.length > 0) {
+                    document.getElementById('siteNoticeText').innerText = data[0].content;
+                    document.getElementById('siteNoticeBanner').classList.remove('hidden');
+                    document.getElementById('siteNoticeModalContent').innerText = data[0].content;
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        function openNoticeModal() { document.getElementById('noticeModal').classList.remove('hidden'); }
+        function closeNoticeModal() { document.getElementById('noticeModal').classList.add('hidden'); }
+        function openAdminModal() { document.getElementById('adminModal').classList.remove('hidden'); }
+        function closeAdminModal() { document.getElementById('adminModal').classList.add('hidden'); }
+
+        async function saveAdminNotice() {
+            const key = document.getElementById('adminKeyInput').value.trim();
+            const content = document.getElementById('adminNoticeInput').value.trim();
+            if (!key || !content) { alert('보안키와 공지 내용을 입력해 주세요.'); return; }
+            await supabaseClient.from('site_notices').insert([{ content, admin_key: key }]);
+            alert('사이트 전체 공지 게시가 완료되었습니다.');
+            closeAdminModal();
+            loadSiteNotice();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        }
+
+        function formatMessageContent(content) {
+            if (!content) return '';
+            const safe = escapeHtml(content);
+            return safe.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank" class="text-purple-400 underline">$1</a>');
+        }
+    </script>
+</body>
+</html>
